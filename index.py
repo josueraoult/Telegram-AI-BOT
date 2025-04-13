@@ -4,8 +4,8 @@ import requests
 import json
 import base64
 import io
-import wave
 import speech_recognition as sr
+from pydub import AudioSegment
 
 # === CONFIG ===
 TELEGRAM_TOKEN = '7728370298:AAH2LROduZRfymFowV3m4c9NE9hlx7ZzgKA'
@@ -39,6 +39,7 @@ def send_main_menu(message):
 # === FONCTION GPT AI ===
 @bot.message_handler(func=lambda m: m.text == "GPT AI")
 def activate_gpt(m):
+    user_states[m.chat.id] = user_states.get(m.chat.id, {})
     user_states[m.chat.id]['feature'] = 'gpt_ai'
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🔙 Retour")
@@ -54,16 +55,24 @@ def handle_text(message):
 
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
+    if user_states.get(message.chat.id, {}).get('feature') != 'gpt_ai':
+        return
+
     file_info = bot.get_file(message.voice.file_id)
     file_url = f'https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}'
     voice_data = requests.get(file_url).content
-    # Convertir l'audio en un format compatible pour speech recognition
-    audio = convert_to_wav(voice_data)
-    if not audio:
-        return bot.send_message(message.chat.id, "Erreur lors de la conversion de l’audio.")
-    text = speech_to_text(audio)
+
+    # Conversion OGG -> WAV
+    audio = AudioSegment.from_file(io.BytesIO(voice_data), format="ogg")
+    wav_io = io.BytesIO()
+    audio.export(wav_io, format="wav")
+    wav_io.seek(0)
+
+    # Reconnaissance vocale
+    text = speech_to_text(wav_io)
     if not text:
         return bot.send_message(message.chat.id, "Erreur lors de la conversion de l’audio.")
+
     gpt_response = ask_gemini(text)
     bot.send_message(message.chat.id, gpt_response)
     audio_url = text_to_speech(gpt_response)
@@ -86,28 +95,13 @@ def ask_gemini(prompt):
     return response.json().get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'Pas de réponse')
 
 # === SPEECH TO TEXT ===
-def speech_to_text(voice_data):
+def speech_to_text(wav_io):
     r = sr.Recognizer()
-    with sr.AudioFile(io.BytesIO(voice_data)) as source:
+    with sr.AudioFile(wav_io) as source:
         audio = r.record(source)
     try:
         return r.recognize_google(audio, language='fr-FR')
-    except sr.UnknownValueError:
-        return None
-    except sr.RequestError as e:
-        print(f"Erreur de la requête à Google Speech Recognition service; {e}")
-        return None
-
-# === AUDIO CONVERTER : Convertir audio en format WAV ===
-def convert_to_wav(voice_data):
-    try:
-        audio = io.BytesIO(voice_data)
-        audio.seek(0)
-        sound = audio.read()
-        # Convertir en un format utilisable par speech_recognition
-        return sound
-    except Exception as e:
-        print(f"Erreur de conversion d'audio: {e}")
+    except:
         return None
 
 # === TEXT TO SPEECH AVEC RESEMBLE ===
