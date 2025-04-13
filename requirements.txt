@@ -1,7 +1,5 @@
-python-telegram-bot==13.15
+python-telegram-bot
 requests
-whisper
-openai-whisper
-git+https://github.com/openai/whisper.git
 ffmpeg-python
-torch
+git+https://github.com/openai/whisper.git
+torch==2.1.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
