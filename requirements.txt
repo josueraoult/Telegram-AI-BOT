@@ -3,3 +3,4 @@ requests
 ffmpeg-python
 git+https://github.com/openai/whisper.git
 torch
+torch==2.2.1+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
