@@ -3,6 +3,9 @@ from telebot import types
 import requests
 import json
 import base64
+import io
+import wave
+import speech_recognition as sr
 
 # === CONFIG ===
 TELEGRAM_TOKEN = '7728370298:AAH2LROduZRfymFowV3m4c9NE9hlx7ZzgKA'
@@ -54,7 +57,11 @@ def handle_voice(message):
     file_info = bot.get_file(message.voice.file_id)
     file_url = f'https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}'
     voice_data = requests.get(file_url).content
-    text = speech_to_text(voice_data)
+    # Convertir l'audio en un format compatible pour speech recognition
+    audio = convert_to_wav(voice_data)
+    if not audio:
+        return bot.send_message(message.chat.id, "Erreur lors de la conversion de l’audio.")
+    text = speech_to_text(audio)
     if not text:
         return bot.send_message(message.chat.id, "Erreur lors de la conversion de l’audio.")
     gpt_response = ask_gemini(text)
@@ -80,14 +87,27 @@ def ask_gemini(prompt):
 
 # === SPEECH TO TEXT ===
 def speech_to_text(voice_data):
-    import speech_recognition as sr
-    import io
     r = sr.Recognizer()
     with sr.AudioFile(io.BytesIO(voice_data)) as source:
         audio = r.record(source)
     try:
         return r.recognize_google(audio, language='fr-FR')
     except sr.UnknownValueError:
+        return None
+    except sr.RequestError as e:
+        print(f"Erreur de la requête à Google Speech Recognition service; {e}")
+        return None
+
+# === AUDIO CONVERTER : Convertir audio en format WAV ===
+def convert_to_wav(voice_data):
+    try:
+        audio = io.BytesIO(voice_data)
+        audio.seek(0)
+        sound = audio.read()
+        # Convertir en un format utilisable par speech_recognition
+        return sound
+    except Exception as e:
+        print(f"Erreur de conversion d'audio: {e}")
         return None
 
 # === TEXT TO SPEECH AVEC RESEMBLE ===
@@ -96,7 +116,6 @@ def text_to_speech(text):
         "Authorization": f"Token {RESEMBLE_API_KEY}",
         "Content-Type": "application/json"
     }
-    # obtenir le projet et la voix
     project = requests.get("https://app.resemble.ai/api/v2/projects", headers=headers).json()['items'][0]
     voice = requests.get("https://app.resemble.ai/api/v2/voices", headers=headers).json()['items'][0]
     data = {
@@ -106,7 +125,6 @@ def text_to_speech(text):
     }
     response = requests.post("https://app.resemble.ai/api/v2/clips", headers=headers, json=data)
     audio_url = response.json()['item']['audio_src']
-    # Uploader sur Catbox
     return catbox_upload(audio_url)
 
 # === UPLOAD CATBOX ===
