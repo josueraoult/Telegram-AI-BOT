@@ -5,25 +5,29 @@ import requests
 import whisper
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from config import TELEGRAM_API_TOKEN, GEMINI_API_KEY, WHISPER_MODEL
 
-# Init logs
+# --- CONFIGURATION ---
+# Clés API et paramètres intégrés directement ici
+TELEGRAM_API_TOKEN = "7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
+GEMINI_API_KEY = "AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
+WHISPER_MODEL = "tiny"
+
+# --- INITIALISATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load Whisper (light)
+# Charger le modèle Whisper (STT)
 whisper_model = whisper.load_model(WHISPER_MODEL)
 
-# Commande /start
+# --- COMMANDES & HANDLERS ---
+
 def start(update: Update, context: CallbackContext) -> None:
     update.message.reply_text("Salut ! Envoie-moi un message texte ou vocal, et je te réponds avec Gemini.")
 
-# Gestion texte
 def text_handler(update: Update, context: CallbackContext) -> None:
     prompt = update.message.text
     send_to_gemini(update, prompt)
 
-# Gestion vocal
 def audio_handler(update: Update, context: CallbackContext) -> None:
     voice = update.message.voice.get_file()
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
@@ -42,7 +46,6 @@ def audio_handler(update: Update, context: CallbackContext) -> None:
     os.remove(ogg_path)
     os.remove(wav_path)
 
-# Appel API Gemini
 def send_to_gemini(update: Update, prompt: str) -> None:
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
     headers = {"Content-Type": "application/json"}
@@ -61,11 +64,10 @@ def send_to_gemini(update: Update, prompt: str) -> None:
     else:
         update.message.reply_text("Erreur avec Gemini API.")
 
-# Gestion erreurs
 def error_handler(update: Update, context: CallbackContext) -> None:
     logger.error(f"Erreur : {context.error}")
 
-# Lancement du bot
+# --- LANCEMENT BOT ---
 def main():
     updater = Updater(TELEGRAM_API_TOKEN)
     dp = updater.dispatcher
