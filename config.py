@@ -1,7 +1,7 @@
 # Clés API et configurations
 
 # TOKEN pour connecter le bot Telegram à ton compte
-TELEGRAM_API_TOKEN = "7728370298:7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
+TELEGRAM_API_TOKEN = "7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
 
 # Clé d'API Gemini de Google AI Studio (tu peux la copier depuis https://makersuite.google.com/app/apikey)
 GEMINI_API_KEY = "AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
