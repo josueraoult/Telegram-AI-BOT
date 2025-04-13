@@ -1,183 +1,97 @@
-import telebot
+import logging
+import os
+import tempfile
+
 import requests
-import io
-import base64
-from flask import Flask
+import whisper
+from TTS.api import TTS
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# ====== CLÉS API ======
-TELEGRAM_TOKEN = "7728370298:AAH2LROduZRfymFowV3m4c9NE9hlx7ZzgKA"
-RESEMBLE_API_KEY = "ev6lZTrSDKV5TK2toXibxQtt"
-GEMINI_API_KEY = "AIzaSyAHLpehdEmUGOWi8t6aZMFd7KOt9GVVltQ"
+from config import TELEGRAM_API_TOKEN, GEMINI_API_KEY, WHISPER_MODEL, COQUI_MODEL
 
-VOICE_UUID = "79eb7953"
-PROJECT_UUID = "cc1eb39a"
+# Initialisation
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-print("Bot initialisé avec succès!")
+# Charger Whisper (transcription)
+whisper_model = whisper.load_model(WHISPER_MODEL)
 
-user_state = {}
+# Charger Coqui TTS (synthèse vocale)
+tts = TTS(model_name=COQUI_MODEL, progress_bar=False, gpu=False)
 
-# ====== TEXT-TO-SPEECH ======
-def text_to_speech(text):
-    url = f"https://app.resemble.ai/api/v2/projects/{PROJECT_UUID}/clips"
-    headers = {
-        "Authorization": f"Token token={RESEMBLE_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "voice_uuid": VOICE_UUID,
-        "data": text,
-        "output_format": "wav",
-        "sample_rate": 48000,
-        "precision": "PCM_16"
-    }
+# Start
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text("Salut ! Envoie-moi un message texte ou vocal et je te répondrai avec l'IA Gemini.")
 
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
+# Traitement audio
+def audio_handler(update: Update, context: CallbackContext) -> None:
+    voice = update.message.voice.get_file()
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
+        voice.download(out=tf)
+        ogg_path = tf.name
 
-        audio_base64 = response.json().get("audio_content")
-        if audio_base64:
-            audio_bytes = base64.b64decode(audio_base64)
-            audio_io = io.BytesIO(audio_bytes)
-            files = {'fileToUpload': ('audio.wav', audio_io, 'audio/wav')}
-            r = requests.post("https://catbox.moe/user/api.php", 
-                              data={"reqtype": "fileupload"}, 
-                              files=files)
-            return r.text.strip()
-    except Exception as e:
-        print(f"Erreur TTS: {e}")
-    return None
+    wav_path = ogg_path.replace(".ogg", ".wav")
+    os.system(f"ffmpeg -i {ogg_path} -ar 16000 -ac 1 -c:a pcm_s16le {wav_path}")
 
-# ====== AUDIO -> TEXTE ======
-def audio_to_text(audio_file):
-    try:
-        with open(audio_file, "rb") as f:
-            audio_content = f.read()
+    result = whisper_model.transcribe(wav_path)
+    text = result["text"]
+    update.message.reply_text(f"Transcription : {text}")
+    process_text(update, text)
 
-        if len(audio_content) < 1000:
-            print("Audio trop court ou vide.")
-            return None
+    os.remove(ogg_path)
+    os.remove(wav_path)
 
-        response = requests.post(
-            f"https://speech.googleapis.com/v1/speech:recognize?key={GEMINI_API_KEY}",
-            headers={"Content-Type": "application/json"},
-            json={
-                "config": {"encoding": "OGG_OPUS", "languageCode": "fr-FR"},
-                "audio": {"content": base64.b64encode(audio_content).decode("utf-8")}
-            }
-        )
-        response.raise_for_status()
-        print("STT response:", response.json())
+# Traitement texte
+def text_handler(update: Update, context: CallbackContext) -> None:
+    text = update.message.text
+    process_text(update, text)
 
-        results = response.json().get("results", [])
-        if results:
-            return results[0]["alternatives"][0]["transcript"]
-    except Exception as e:
-        print(f"Erreur STT: {e}")
-    return None
-
-# ====== GPT AI VIA GEMINI ======
-def gemini_response(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+# Requête Gemini
+def process_text(update: Update, prompt: str) -> None:
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
     headers = {"Content-Type": "application/json"}
-    try:
-        response = requests.post(url, headers=headers, json={
-            "contents": [{"parts": [{"text": prompt}]}]
-        })
-        response.raise_for_status()
-        print("Gemini response:", response.json())
-        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        print(f"Erreur Gemini: {e}")
-        return "Erreur lors de la génération."
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    full_url = f"{url}?key={GEMINI_API_KEY}"
+    response = requests.post(full_url, headers=headers, json=payload)
 
-# ====== HANDLERS TELEGRAM ======
-@bot.message_handler(commands=['start'])
-def start(message):
-    user_state[message.chat.id] = "lang_select"
-    bot.send_message(message.chat.id, "Choisis ta langue / Choose your language:\nFR / EN")
-
-@bot.message_handler(func=lambda msg: user_state.get(msg.chat.id) == "lang_select")
-def set_language(message):
-    lang = message.text.strip().upper()
-    if lang in ['FR', 'EN']:
-        user_state[message.chat.id] = {"lang": lang, "mode": None}
-        bot.send_message(message.chat.id, f"Langue définie sur {lang}. Tape /menu pour voir les options.")
-    else:
-        bot.send_message(message.chat.id, "Langue invalide. Choisis FR ou EN.")
-
-@bot.message_handler(commands=['menu'])
-def menu(message):
-    state = user_state.get(message.chat.id, {})
-    if isinstance(state, dict):
-        lang = state.get("lang", "FR")
-        if lang == "FR":
-            bot.send_message(message.chat.id, "Menu:\n1. GPT AI\n2. Quitter")
-        else:
-            bot.send_message(message.chat.id, "Menu:\n1. GPT AI\n2. Exit")
-        user_state[message.chat.id]["mode"] = "menu"
-
-@bot.message_handler(func=lambda msg: isinstance(user_state.get(msg.chat.id), dict) and user_state[msg.chat.id].get("mode") == "menu")
-def handle_menu_choice(message):
-    choice = message.text.strip()
-    lang = user_state[message.chat.id]["lang"]
-
-    if choice == "1":
-        user_state[message.chat.id]["mode"] = "gpt"
-        if lang == "FR":
-            bot.send_message(message.chat.id, "Tu es maintenant dans le mode GPT AI. Envoie un texte ou un audio.")
-        else:
-            bot.send_message(message.chat.id, "You're now in GPT AI mode. Send text or audio.")
-    else:
-        user_state[message.chat.id]["mode"] = None
-        bot.send_message(message.chat.id, "Bye!")
-
-@bot.message_handler(content_types=['voice'])
-def handle_voice(message):
-    state = user_state.get(message.chat.id, {})
-    if isinstance(state, dict) and state.get("mode") == "gpt":
+    if response.status_code == 200:
+        data = response.json()
         try:
-            file_info = bot.get_file(message.voice.file_id)
-            file = requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}")
-            
-            with open("audio.ogg", "wb") as f:
-                f.write(file.content)
+            text_response = data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            text_response = "Erreur de traitement dans la réponse de Gemini."
 
-            text = audio_to_text("audio.ogg")
-            print("Texte reconnu:", text)
-            if text:
-                response = gemini_response(text)
-                audio_url = text_to_speech(response)
-                bot.send_message(message.chat.id, response)
-                if audio_url:
-                    bot.send_voice(message.chat.id, audio=requests.get(audio_url).content)
-            else:
-                bot.send_message(message.chat.id, "Impossible de comprendre l'audio.")
-        except Exception as e:
-            print(f"Erreur voice: {e}")
-            bot.send_message(message.chat.id, "Une erreur est survenue lors du traitement de l'audio.")
+        update.message.reply_text(text_response)
 
-@bot.message_handler(func=lambda msg: isinstance(user_state.get(msg.chat.id), dict) and user_state[msg.chat.id].get("mode") == "gpt")
-def handle_text(message):
-    try:
-        response = gemini_response(message.text)
-        audio_url = text_to_speech(response)
-        bot.send_message(message.chat.id, response)
-        if audio_url:
-            bot.send_voice(message.chat.id, audio=requests.get(audio_url).content)
-    except Exception as e:
-        print(f"Erreur texte: {e}")
-        bot.send_message(message.chat.id, "Une erreur est survenue lors du traitement de votre message.")
+        # Synthèse vocale avec Coqui TTS
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf_audio:
+            audio_path = tf_audio.name
+            tts.tts_to_file(text=text_response, file_path=audio_path)
+            update.message.reply_voice(voice=open(audio_path, "rb"))
+            os.remove(audio_path)
+    else:
+        update.message.reply_text("Erreur lors de la requête à Gemini.")
 
-# ====== SERVEUR WEB POUR RENDER ======
-app = Flask(__name__)
+# Gestion des erreurs
+def error_handler(update: Update, context: CallbackContext) -> None:
+    logger.error(f"Erreur : {context.error}")
 
-@app.route('/')
-def home():
-    return "Le bot Telegram fonctionne parfaitement sur Render (port 8080)!"
+# Lancement du bot
+def main():
+    updater = Updater(TELEGRAM_API_TOKEN)
+    dp = updater.dispatcher
 
-if __name__ == "__main__":
-    import threading
-    threading.Thread(target=lambda: bot.infinity_polling()).start()
-    app.run(host="0.0.0.0", port=8080)
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.voice, audio_handler))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
+    dp.add_error_handler(error_handler)
+
+    print("Bot démarré.")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()

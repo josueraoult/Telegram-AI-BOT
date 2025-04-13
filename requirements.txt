@@ -1,3 +1,7 @@
-Flask
-pyTelegramBotAPI
+python-telegram-bot
 requests
+whisper
+TTS
+ffmpeg-python
+torch
+sentencepiece
