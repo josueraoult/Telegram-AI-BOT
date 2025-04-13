@@ -9,8 +9,8 @@ import whisper
 import subprocess
 
 # Configuration
-TELEGRAM_API_TOKEN = "TON_TOKEN_TELEGRAM"
-GEMINI_API_KEY = "TA_CLE_GEMINI"
+TELEGRAM_API_TOKEN = "7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
+GEMINI_API_KEY = ":AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
 WHISPER_MODEL = "tiny"
 
 # Logger
