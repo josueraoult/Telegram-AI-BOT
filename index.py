@@ -12,13 +12,8 @@ GEMINI_API_KEY = "AIzaSyAHLpehdEmUGOWi8t6aZMFd7KOt9GVVltQ"
 VOICE_UUID = "79eb7953"
 PROJECT_UUID = "cc1eb39a"
 
-# Initialisation du bot
-try:
-    bot = telebot.TeleBot(TELEGRAM_TOKEN)
-    print("Bot initialisé avec succès!")
-except Exception as e:
-    print(f"Erreur lors de l'initialisation du bot: {e}")
-    raise
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+print("Bot initialisé avec succès!")
 
 user_state = {}
 
@@ -47,8 +42,8 @@ def text_to_speech(text):
             audio_io = io.BytesIO(audio_bytes)
             files = {'fileToUpload': ('audio.wav', audio_io, 'audio/wav')}
             r = requests.post("https://catbox.moe/user/api.php", 
-                            data={"reqtype": "fileupload"}, 
-                            files=files)
+                              data={"reqtype": "fileupload"}, 
+                              files=files)
             return r.text.strip()
     except Exception as e:
         print(f"Erreur TTS: {e}")
@@ -60,14 +55,20 @@ def audio_to_text(audio_file):
         with open(audio_file, "rb") as f:
             audio_content = f.read()
 
+        if len(audio_content) < 1000:
+            print("Audio trop court ou vide.")
+            return None
+
         response = requests.post(
             f"https://speech.googleapis.com/v1/speech:recognize?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
             json={
                 "config": {"encoding": "OGG_OPUS", "languageCode": "fr-FR"},
                 "audio": {"content": base64.b64encode(audio_content).decode("utf-8")}
             }
         )
         response.raise_for_status()
+        print("STT response:", response.json())
 
         results = response.json().get("results", [])
         if results:
@@ -79,15 +80,19 @@ def audio_to_text(audio_file):
 # ====== GPT AI VIA GEMINI ======
 def gemini_response(prompt):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
     try:
-        response = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
+        response = requests.post(url, headers=headers, json={
+            "contents": [{"parts": [{"text": prompt}]}]
+        })
         response.raise_for_status()
+        print("Gemini response:", response.json())
         return response.json()["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
         print(f"Erreur Gemini: {e}")
         return "Erreur lors de la génération."
 
-# ====== BOT TELEGRAM ======
+# ====== HANDLERS TELEGRAM ======
 @bot.message_handler(commands=['start'])
 def start(message):
     user_state[message.chat.id] = "lang_select"
@@ -140,6 +145,7 @@ def handle_voice(message):
                 f.write(file.content)
 
             text = audio_to_text("audio.ogg")
+            print("Texte reconnu:", text)
             if text:
                 response = gemini_response(text)
                 audio_url = text_to_speech(response)
