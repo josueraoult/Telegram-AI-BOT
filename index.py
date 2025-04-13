@@ -5,7 +5,7 @@ import json
 import base64
 
 # === CONFIG ===
-TELEGRAM_TOKEN = 'TON_TOKEN_TELEGRAM'
+TELEGRAM_TOKEN = '7728370298:AAH2LROduZRfymFowV3m4c9NE9hlx7ZzgKA'
 GEMINI_API_KEY = 'AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk'
 RESEMBLE_API_KEY = 'ev6lZTrSDKV5TK2toXibxQtt'
 CATBOX_UPLOAD_URL = "https://jonell01-ccprojectsapihshs.hf.space/api/catmoe?url="
