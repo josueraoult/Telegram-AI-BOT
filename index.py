@@ -83,10 +83,9 @@ def handle_voice(message: Message):
     except Exception as e:
         logger.error(f"Erreur audio : {e}")
         bot.reply_to(message, "Erreur lors du traitement du message vocal.")
-
-# Envoi à Gemini
+#Gemini 
 def send_to_gemini(message: Message, prompt: str):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
