@@ -20,7 +20,7 @@ WHISPER_MODEL = "tiny"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Vérification des tokens
+# Vérification du token
 if not TELEGRAM_API_TOKEN:
     raise ValueError("TELEGRAM_API_TOKEN manquant !")
 if not GEMINI_API_KEY:
@@ -29,7 +29,7 @@ if not GEMINI_API_KEY:
 # Initialisation du bot
 bot = telebot.TeleBot(TELEGRAM_API_TOKEN)
 
-# Vérification du token
+# Vérification que le token fonctionne
 try:
     me = bot.get_me()
     logger.info(f"Bot connecté : @{me.username}")
@@ -38,11 +38,9 @@ except Exception as e:
     exit()
 
 # Chargement du modèle Whisper
-logger.info("Chargement du modèle Whisper...")
 whisper_model = whisper.load_model(WHISPER_MODEL)
-logger.info("Modèle Whisper chargé.")
 
-# Serveur Flask pour Render
+# Serveur web (utile pour Render)
 app = Flask(__name__)
 @app.route("/")
 def index():
@@ -56,75 +54,63 @@ def handle_start(message: Message):
 # Texte
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_text(message: Message):
-    logger.info(f"Texte reçu : {message.text}")
     send_to_gemini(message, message.text)
 
 # Vocal
 @bot.message_handler(content_types=["voice"])
 def handle_voice(message: Message):
-    logger.info("Message vocal reçu.")
-    bot.reply_to(message, "Message vocal reçu, traitement en cours...")
-    
     try:
         file_info = bot.get_file(message.voice.file_id)
-        logger.info(f"Fichier audio : {file_info.file_path}")
         file = bot.download_file(file_info.file_path)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
             f.write(file)
             ogg_path = f.name
-        logger.info(f"Audio téléchargé : {ogg_path}")
 
         wav_path = ogg_path.replace(".ogg", ".wav")
-        ffmpeg_command = [
+        subprocess.run([
             "ffmpeg", "-y", "-i", ogg_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path
-        ]
-        logger.info(f"Conversion avec ffmpeg : {' '.join(ffmpeg_command)}")
-        subprocess.run(ffmpeg_command, check=True)
+        ], check=True)
 
-        logger.info("Transcription en cours...")
         result = whisper_model.transcribe(wav_path)
         text = result["text"]
-        logger.info(f"Transcription : {text}")
         bot.reply_to(message, f"[Transcription]: {text}")
         send_to_gemini(message, text)
 
+        os.remove(ogg_path)
+        os.remove(wav_path)
+
     except Exception as e:
         logger.error(f"Erreur audio : {e}")
-        bot.reply_to(message, f"Erreur audio : {e}")
-    finally:
-        try:
-            if os.path.exists(ogg_path): os.remove(ogg_path)
-            if os.path.exists(wav_path): os.remove(wav_path)
-        except Exception as e:
-            logger.warning(f"Erreur suppression fichier : {e}")
+        bot.reply_to(message, "Erreur lors du traitement du message vocal.")
 
 # Envoi à Gemini
 def send_to_gemini(message: Message, prompt: str):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
     }
 
     try:
-        logger.info(f"Envoi à Gemini : {prompt}")
-        r = requests.post(url, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        logger.info(f"Réponse Gemini brute : {data}")
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
         response_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Aucune réponse.")
         bot.reply_to(message, f"[Gemini]: {response_text}")
-    except Exception as e:
-        logger.error(f"Erreur Gemini : {e}")
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"Erreur Gemini : {err}")
         bot.reply_to(message, "Erreur avec l'API Gemini.")
+    except Exception as e:
+        logger.error(f"Erreur générique : {e}")
+        bot.reply_to(message, "Une erreur est survenue.")
 
 # Lancer serveur + bot
 if __name__ == "__main__":
     def run_web():
-        port = int(os.environ.get("PORT", 8080))
-        logger.info(f"Lancement du serveur Flask sur le port {port}")
-        app.run(host="0.0.0.0", port=port)
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
     Thread(target=run_web).start()
     logger.info("Bot lancé avec polling.")
