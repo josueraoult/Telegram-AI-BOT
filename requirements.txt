@@ -1,5 +1,4 @@
-pyTelegramBotAPI==4.15.4
+pyTelegramBotAPI
 requests
 SpeechRecognition
 pydub
-ffmpeg-python
