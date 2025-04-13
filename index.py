@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 load_dotenv()
 TELEGRAM_API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-WHISPER_MODEL = "tiny"
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -37,8 +36,8 @@ except Exception as e:
     logger.error(f"Échec de connexion à Telegram : {e}")
     exit()
 
-# Chargement du modèle Whisper
-whisper_model = whisper.load_model(WHISPER_MODEL)
+# Chargement du modèle Whisper (correct pour CPU)
+whisper_model = whisper.load_model("tiny", device="cpu", fp16=False)
 
 # Serveur web (utile pour Render)
 app = Flask(__name__)
@@ -84,7 +83,7 @@ def handle_voice(message: Message):
         logger.error(f"Erreur audio : {e}")
         bot.reply_to(message, "Erreur lors du traitement du message vocal.")
 
-# Envoi à Gemini
+# Envoi à Gemini (modèle flash)
 def send_to_gemini(message: Message, prompt: str):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
