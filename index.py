@@ -7,25 +7,41 @@ import telebot
 from telebot.types import Message
 import whisper
 import subprocess
+from threading import Thread
+from dotenv import load_dotenv
 
-# Configuration
-TELEGRAM_API_TOKEN = "7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
-GEMINI_API_KEY = "AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
+# Charger les variables d'environnement
+load_dotenv()
+TELEGRAM_API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WHISPER_MODEL = "tiny"
 
 # Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Vérification du token
+if not TELEGRAM_API_TOKEN:
+    raise ValueError("TELEGRAM_API_TOKEN manquant !")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY manquant !")
+
 # Initialisation du bot
 bot = telebot.TeleBot(TELEGRAM_API_TOKEN)
+
+# Vérification que le token fonctionne
+try:
+    me = bot.get_me()
+    logger.info(f"Bot connecté : @{me.username}")
+except Exception as e:
+    logger.error(f"Échec de connexion à Telegram : {e}")
+    exit()
 
 # Chargement du modèle Whisper
 whisper_model = whisper.load_model(WHISPER_MODEL)
 
-# Serveur web simple (Flask)
+# Serveur web (utile pour Render)
 app = Flask(__name__)
-
 @app.route("/")
 def index():
     return "Le bot fonctionne."
@@ -35,12 +51,12 @@ def index():
 def handle_start(message: Message):
     bot.reply_to(message, "Bienvenue ! Envoie-moi un texte ou un message vocal, et je te répondrai.")
 
-# Gestion des messages texte
+# Texte
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_text(message: Message):
     send_to_gemini(message, message.text)
 
-# Gestion des messages vocaux
+# Vocal
 @bot.message_handler(content_types=["voice"])
 def handle_voice(message: Message):
     try:
@@ -68,7 +84,7 @@ def handle_voice(message: Message):
         logger.error(f"Erreur audio : {e}")
         bot.reply_to(message, "Erreur lors du traitement du message vocal.")
 
-# Envoi à Gemini API
+# Envoi à Gemini
 def send_to_gemini(message: Message, prompt: str):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -79,22 +95,18 @@ def send_to_gemini(message: Message, prompt: str):
     try:
         r = requests.post(url, headers=headers, json=payload)
         r.raise_for_status()
-        response_text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        bot.reply_to(message, response_text)
+        data = r.json()
+        response_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Aucune réponse.")
+        bot.reply_to(message, f"[Gemini]: {response_text}")
     except Exception as e:
         logger.error(f"Erreur Gemini : {e}")
         bot.reply_to(message, "Erreur avec l'API Gemini.")
 
-# Lancement du bot et du serveur web
+# Lancer serveur + bot
 if __name__ == "__main__":
-    from threading import Thread
-
-    # Démarrer le serveur web
     def run_web():
-        app.run(host="0.0.0.0", port=8080)
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
     Thread(target=run_web).start()
-
-    # Lancer le bot
-    logger.info("Bot lancé avec telebot.")
+    logger.info("Bot lancé avec polling.")
     bot.infinity_polling()
