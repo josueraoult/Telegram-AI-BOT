@@ -10,7 +10,7 @@ import subprocess
 
 # Configuration
 TELEGRAM_API_TOKEN = "7728370298:AAFiwKzKcsaMBAzQc1VPc9XYosMXpvxho3s"
-GEMINI_API_KEY = ":AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
+GEMINI_API_KEY = "AIzaSyAArErZGDDJx7DJwExgY_pPWmN7Tjai8nk"
 WHISPER_MODEL = "tiny"
 
 # Logger
