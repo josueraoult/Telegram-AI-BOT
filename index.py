@@ -2,6 +2,8 @@ import logging
 import os
 import tempfile
 import requests
+import asyncio
+import subprocess
 import whisper
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
@@ -19,58 +21,52 @@ whisper_model = whisper.load_model(WHISPER_MODEL)
 # --- HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Salut ! Envoie-moi un message texte ou vocal, et je te réponds avec Gemini.")
+    await update.message.reply_text("Bienvenue ! Envoie-moi un message texte ou vocal.")
 
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = update.message.text
-    await send_to_gemini(update, prompt)
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    await send_to_gemini(update, user_text)
 
-async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    voice = await update.message.voice.get_file()
-    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
-        await voice.download_to_drive(tf.name)
-        ogg_path = tf.name
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice_file = await update.message.voice.get_file()
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as ogg_file:
+        await voice_file.download_to_drive(ogg_file.name)
+        ogg_path = ogg_file.name
 
     wav_path = ogg_path.replace(".ogg", ".wav")
-    os.system(f"ffmpeg -i {ogg_path} -ar 16000 -ac 1 -c:a pcm_s16le {wav_path}")
-
+    subprocess.run(["ffmpeg", "-y", "-i", ogg_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path])
     result = whisper_model.transcribe(wav_path)
     text = result["text"]
 
-    await update.message.reply_text(f"[Transcription]: {text}")
+    await update.message.reply_text(f"[Transcrit]: {text}")
     await send_to_gemini(update, text)
 
     os.remove(ogg_path)
     os.remove(wav_path)
 
 async def send_to_gemini(update: Update, prompt: str):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    full_url = f"{url}?key={GEMINI_API_KEY}"
-    r = requests.post(full_url, headers=headers, json=payload)
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    response = requests.post(url, headers=headers, json=payload)
 
-    if r.status_code == 200:
+    if response.status_code == 200:
         try:
-            reply = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            reply = "Réponse invalide de Gemini."
+            reply = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except:
+            reply = "Erreur : réponse Gemini invalide."
     else:
-        reply = "Erreur avec Gemini API."
+        reply = "Erreur avec l’API Gemini."
 
     await update.message.reply_text(reply)
 
 # --- MAIN ---
 def main():
     app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-    app.add_handler(MessageHandler(filters.VOICE, audio_handler))
-
-    print("Bot prêt.")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    print("Bot lancé.")
     app.run_polling()
 
 if __name__ == '__main__':
