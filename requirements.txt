@@ -1,6 +1,6 @@
 python-telegram-bot==20.7
-requests
-ffmpeg-python
+requests==2.31.0
+ffmpeg-python==0.2.0
+torch==2.2.1
+torchaudio==2.2.1
 git+https://github.com/openai/whisper.git
-torch
-torch==2.2.1+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
